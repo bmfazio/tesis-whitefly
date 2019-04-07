@@ -1,0 +1,18 @@
+Randomized Complete Block Design
+--------------------------------
+Blocks correspond to clusters of units with similar traits
+e.g. block by age or district of residence
+
+Treatments are assigned at random within each block
+
+Then, Y = u + T + B + e
+Y = outcome
+u = grand mean
+T = treatment effect
+B = block effect
+e = random error
+
+Whitefly setup
+--------------
+3 blocks, 6 units each, 6 treatments
+repeated measures over 12 weeks
