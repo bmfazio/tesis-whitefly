@@ -1,3 +1,14 @@
+fit_zib <- function(formula_){
+  # Reasonable weak regularization for logistic coeffs
+  priors <- set_prior("normal(0,5)", class = "b")
+  brm(formula = formula_,
+      data = wf,
+      prior = priors,
+      family = zero_inflated_binomial())
+}
+
+###
+
 ei_binomial <- custom_family(
   "ei_binomial",
   dpars = c("mu", "po", "pm"),
