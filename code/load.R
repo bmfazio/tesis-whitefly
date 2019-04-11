@@ -10,7 +10,7 @@
 # plantid = an identifier for the plant on which the measurement was taken.
 
 wf <- read_delim(
-  "D:/datasets/_requests/whitefly.txt",
+  "in/whitefly.txt",
   delim = " ", skip = 10
   ) %>%
   mutate(
