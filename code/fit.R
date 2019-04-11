@@ -1,82 +1,89 @@
-save_fit <- function(fitname, fitfun, formula_) {
-  if(file.exists("out/fits/" %p0% fitname %p0% ".rds"))stop("File already exists")
-  saveRDS(object = fitfun(formula_), file = "out/fits/" %p0% fitname %p0% ".rds")
-}
-
-fit_zib <- function(formula_){
-  # Reasonable weak regularization for logistic coeffs
-  priors <- set_prior("normal(0,5)", class = "b")
-  brm(formula = formula_,
-      data = wf,
-      prior = priors,
-      family = zero_inflated_binomial())
-}
-
-fit_eib <- function(formula_){
-  ei_binomial <- custom_family(
-    "ei_binomial", dpars = c("mu", "s0", "s1"),
-    links = c("logit", "identity", "identity"),
-    type = "int", vars = "trials[n]"
-  )
-  
-  stan_funs <- "
-real ei_binomial_lpmf(int y, real mu, real po, real pm, int yo, int ym, int T) {
-  return log(yo*po + ym*pm + (1-po-pm)*exp(binomial_logit_lpmf(y|T, mu)));
-}
-
-int ei_binomial_rng(real mu, real po, real pm, int T) {
-  int which_component = categorical_rng([po, pm, (1-po-pm)]');
-
-  if (which_component == 1) {
-    return 0;
-  }
-  if (which_component == 2) {
-    return T;
-  }
-
-  return binomial_rng(T, inv_logit(mu));
-}
-  "
-  
-  # Reasonable weak regularization for logistic coeffs
-  priors <- set_prior("normal(0,5)", class = "b")
-  brm(formula = formula_,
-      data = wf,
-      prior = priors,
-      family = zero_inflated_binomial())
-}
-
-
-# Model 1: Hall 2004
+# Model 1a: Hall 2004
 # logit(p_ijk) = mu + block_j + trt_i + b*week_k
 # logit(mix_ijk) = c
 save_fit("hall_fixedeff", fit_zib,
          nlive|trials(bindenom) ~ trt + week + rep)
 
-# Model 2: Hall 2004 + intra-unit correlation via random intercept
+# Model 1b: Hall 2004 + random intercept
 # logit(p_ijk) = mu + block_j + trt_i + b*week_k + (1|plantid)
 # logit(mix_ijk) = c
 save_fit("hall_idraneff", fit_zib,
          nlive|trials(bindenom) ~ trt + week + rep + (1|plantid))
 
-# Model 2: Hall 2004 + intra-unit correlation via random intercept
-# logit(p_ijk) = mu + block_j + trt_i + b*week_k + (1|plantid)
-# logit(mix_ijk) = c
-save_fit("hall_idraneff", fit_zib,
-         nlive|trials(bindenom) ~ trt + week + rep + (1|plantid))
+# Model 1c: Hall 2004 + predictor on zero probability
+save_fit("hall_zpred", fit_zib,
+         bf(nlive|trials(bindenom) ~ trt + week + rep,
+            zi ~ trt + week + rep))
 
-# Model 3: Hall 2004 + reff + endpoint inflation
-# logit(p_ijk) = mu + block_j + trt_i + b*week_k + (1|plantid)
+# Model 2a: Hall 2004 - EIB (fixed EI)
+# logit(p_ijk) = mu + block_j + trt_i + b*week_k
 # logit(mix0_ijk) = c
 # logit(mix1_ijk) = c
-save_fit("hall_idraneff", fit_eib,
-         nlive|trials(bindenom) ~ trt + week + rep + (1|plantid))
+save_fit("hall_eibPconst", fit_eiBinomialSM,
+         nlive ~ trt + week + rep)
 
+# Model 2b: Hall 2004 - EIB (same predictor for all parameters)
+# logit(p_ijk) = mu + block_j + trt_i + b*week_k
+# [mix0_ijk, mix1_ijk] = softmax(mu + block_j + trt_i + b*week_k)
+save_fit("hall_eibfullreg", fit_eiBinomialSM,
+         bf(nlive ~ trt + week + rep,
+            so ~ trt + week + rep,
+            sm ~ trt + week + rep))
+  # Does NOT converge as-is
+  # Got max_treedepth warnings on every transition
 
+# Model 2c: Hall 2004 - EIB (only main var on inflation)
+# logit(p_ijk) = mu + block_j + trt_i + b*week_k
+# [mix0_ijk, mix1_ijk] = softmax(trt_i)
+save_fit("hall_eibtrtreg2", fit_eiBinomialSM,
+         bf(nlive ~ trt + week + rep,
+            so ~ trt,
+            sm ~ trt),
+         control = list(adapt_delta = 0.9, max_treedepth = 15))
+save_fit("hall_eibtrtreg", fit_eiBinomialSM,
+         bf(nlive ~ trt + week + rep,
+            so ~ trt,
+            sm ~ trt))
 
 ###
 m1 <- readRDS("out/fits/hall_fixedeff.rds")
 m2 <- readRDS("out/fits/hall_idraneff.rds")
+m3 <- readRDS("out/fits/hall_eibPconst.rds")
+
+### ARREGLA!!!!!!!!1111111111111
+expose_functions(m3, vectorize = TRUE)
+softmax <- function(x)(exp(x)/sum(exp(x)))
+log_lik_eiBinomialSM <- function(i, draws) {
+  mu <- draws$dpars$mu[, i]
+  so <- draws$dpars$so
+  sm <- draws$dpars$sm
+  trials <- draws$data$trials[i]
+  y <- draws$data$Y[i]
+  eiBinomialSM_lpmf(y, mu, so, sm, trials)
+}
+predict_eiBinomialSM <- function(i, draws, ...) {
+  mu <- draws$dpars$mu[, i]
+  so <- draws$dpars$so
+  sm <- draws$dpars$sm
+  trials <- draws$data$trials[i]
+  eiBinomialSM_rng(mu, so, sm, trials)
+}
+fitted_eiBinomialSM <- function(draws) {
+  mu <- draws$dpars$mu
+  so <- draws$dpars$so
+  sm <- draws$dpars$sm
+  p <- t(apply(cbind(matrix(c(so, sm), ncol = 2), 0), 1, softmax))
+  (p[,2] + p[,3]*mu)
+}
+draws1 <- readRDS("averps40.rds")
+draws2 <- readRDS("averps66.rds")
+draws3 <- readRDS("averps76.rds")
+#marginal_effects(m3)
+#pp_check(m3)
+#loo(m3)
+predict_eiBinomialSM <- function(i, draws, ...){1}
+
+softmax(c(0.37, 0, -1.22))
 
 marginal_effects(m1)
 marginal_effects(m2)
