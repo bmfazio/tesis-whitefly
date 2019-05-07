@@ -1,99 +1,88 @@
-# Model 1a: Hall 2004
-# logit(p_ijk) = mu + block_j + trt_i + b*week_k
-# logit(mix_ijk) = c
-save_fit("hall_fixedeff", fit_zib,
+set.seed(69420)
+
+# Model 1a: Hall 2004 ZIB
+save_fit("zib_fixed", fit_zib,
          nlive|trials(bindenom) ~ trt + week + rep)
 
 # Model 1b: Hall 2004 + random intercept
-# logit(p_ijk) = mu + block_j + trt_i + b*week_k + (1|plantid)
-# logit(mix_ijk) = c
-save_fit("hall_idraneff", fit_zib,
+save_fit("zib_randeff", fit_zib,
          nlive|trials(bindenom) ~ trt + week + rep + (1|plantid))
 
-# Model 1c: Hall 2004 + predictor on zero probability
-save_fit("hall_zpred", fit_zib,
+# Model 1c: Hall 2004 + trt on 0-inflation
+save_fit("zib_0trt", fit_zib,
+         bf(nlive|trials(bindenom) ~ trt + week + rep,
+            zi ~ trt))
+
+# Model 1d: Hall 2004 + predict 0-inflation
+save_fit("zib_0pred", fit_zib,
          bf(nlive|trials(bindenom) ~ trt + week + rep,
             zi ~ trt + week + rep))
 
-# Model 2a: Hall 2004 - EIB (fixed EI)
-# logit(p_ijk) = mu + block_j + trt_i + b*week_k
-# logit(mix0_ijk) = c
-# logit(mix1_ijk) = c
-save_fit("hall_eibPconst", fit_eiBinomialSM,
+# Model 2a: Hall 2004 EIB (fixed inflation)
+save_fit("eib_fixed", fit_eiBinomialSM,
          nlive ~ trt + week + rep)
 
-# Model 2b: Hall 2004 - EIB (same predictor for all parameters)
-# logit(p_ijk) = mu + block_j + trt_i + b*week_k
-# [mix0_ijk, mix1_ijk] = softmax(mu + block_j + trt_i + b*week_k)
-save_fit("hall_eibfullreg", fit_eiBinomialSM,
+# Model 2b: Hall 2004 + trt on 0-inflation
+save_fit("eib_0trt", fit_eiBinomialSM,
          bf(nlive ~ trt + week + rep,
-            so ~ trt + week + rep,
-            sm ~ trt + week + rep))
-  # Does NOT converge as-is
-  # Got max_treedepth warnings on every transition
+            so ~ trt))
 
-# Model 2c: Hall 2004 - EIB (only main var on inflation)
-# logit(p_ijk) = mu + block_j + trt_i + b*week_k
-# [mix0_ijk, mix1_ijk] = softmax(trt_i)
-save_fit("hall_eibtrtreg2", fit_eiBinomialSM,
+# Model 2c: Hall 2004 + trt on 0-inflation
+save_fit("eib_0pred", fit_eiBinomialSM,
          bf(nlive ~ trt + week + rep,
-            so ~ trt,
-            sm ~ trt),
-         control = list(adapt_delta = 0.9, max_treedepth = 15))
-save_fit("hall_eibtrtreg", fit_eiBinomialSM,
+            so ~ trt + week + rep))
+
+# Model 3a: Hall 2004 EIB (fixed inflation)
+save_fit("neib_fixed", fit_eiBinomialLN,
+         nlive ~ trt + week + rep)
+
+# Model 3b: Hall 2004 + trt on 0-inflation
+save_fit("neib_0trt", fit_eiBinomialLN,
          bf(nlive ~ trt + week + rep,
-            so ~ trt,
-            sm ~ trt))
+            muL ~ trt),
+         control = list(max_treedepth = 12))
 
-###
-m1 <- readRDS("out/fits/hall_fixedeff.rds")
-m2 <- readRDS("out/fits/hall_idraneff.rds")
-m3 <- readRDS("out/fits/hall_eibPconst.rds")
+# Model 3c: Hall 2004 + trt on 0-inflation
+save_fit("neib_0pred", fit_eiBinomialLN,
+         bf(nlive ~ trt + week + rep,
+            muL ~ trt + week + rep))
 
-### ARREGLA!!!!!!!!1111111111111
-expose_functions(m3, vectorize = TRUE)
-softmax <- function(x)(exp(x)/sum(exp(x)))
-log_lik_eiBinomialSM <- function(i, draws) {
-  mu <- draws$dpars$mu[, i]
-  so <- draws$dpars$so
-  sm <- draws$dpars$sm
-  trials <- draws$data$trials[i]
-  y <- draws$data$Y[i]
-  eiBinomialSM_lpmf(y, mu, so, sm, trials)
-}
-predict_eiBinomialSM <- function(i, draws, ...) {
-  mu <- draws$dpars$mu[, i]
-  so <- draws$dpars$so
-  sm <- draws$dpars$sm
-  trials <- draws$data$trials[i]
-  eiBinomialSM_rng(mu, so, sm, trials)
-}
-fitted_eiBinomialSM <- function(draws) {
-  mu <- draws$dpars$mu
-  so <- draws$dpars$so
-  sm <- draws$dpars$sm
-  p <- t(apply(cbind(matrix(c(so, sm), ncol = 2), 0), 1, softmax))
-  (p[,2] + p[,3]*mu)
-}
-draws1 <- readRDS("averps40.rds")
-draws2 <- readRDS("averps66.rds")
-draws3 <- readRDS("averps76.rds")
-#marginal_effects(m3)
-#pp_check(m3)
-#loo(m3)
-predict_eiBinomialSM <- function(i, draws, ...){1}
+# # Model 3d: Hall 2004 + trt on 0-inflation
+# save_fit("neib_semivaso", fit_eiBinomialLN,
+#          bf(nlive ~ trt + week + rep,
+#             muL ~ trt,
+#             sdL ~ trt),
+#          control = list(adapt_delta = 0.95, max_treedepth = 12))
+# 
+# save_fit("neib_fullvaso", fit_eiBinomialLN,
+#          bf(nlive ~ trt + week + rep,
+#             muL ~ trt,
+#             sdL ~ trt + week + rep),
+#          control = list(adapt_delta = 0.9, max_treedepth = 12))
 
-softmax(c(0.37, 0, -1.22))
 
-marginal_effects(m1)
-marginal_effects(m2)
+m1 <- readRDS("out/fits/zib_fixed.rds")
+m2 <- readRDS("out/fits/zib_randeff.rds")
+m3 <- readRDS("out/fits/zib_0trt.rds")
+m4 <- readRDS("out/fits/zib_0pred.rds")
+m5 <- readRDS("out/fits/eib_fixed.rds")
+m6 <- readRDS("out/fits/eib_0trt.rds")
+m7 <- readRDS("out/fits/eib_0pred.rds")
+m8 <- readRDS("out/fits/neib_fixed.rds")
+m9 <- readRDS("out/fits/neib_0trt.rds")
+mA <- readRDS("out/fits/neib_0pred.rds")
+mB <- readRDS("out/fits/neib_fullvaso.rds")
 
-eib_fit <- brm(
-  nlive ~ trt + week + (1|plantid) + (1|rep), data = wf,
-  family = ei_binomial, stanvars = stanvars, prior = priors,
-  cores = 3, control = list(adapt_delta = 0.95),
-  inits = list(a, a, a, a)
-)
+expose_functions(m5, vectorize = TRUE)
+lm5 <- loo(m5)
+lm6 <- loo(m6)
+lm7 <- loo(m7)
+expose_functions(m8, vectorize = TRUE)
+lm8 <- loo(m8)
+lm9 <- loo(m9)
+lmA <- loo(mA)
 
-# inits?
-#a <- list(b = as.array(rep(0, 6)), po = 0.33, pm = 0.33)
+# marginal_effects(m4)
+# marginal_effects(m5)
+# marginal_effects(m6)
+# loo(m4, m5, m6)
